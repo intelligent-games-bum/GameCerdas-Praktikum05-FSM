@@ -1,27 +1,140 @@
 <div align="center">
 
-# Autonomous Steering Agent
+# Intelligent Games Labs
 
-A farmhand that finds its way around the island with no map at all,
-sharing it with a guard who hunts you by sight and loses you when you break cover.
-Third lab of the Intelligent Games course, built on the second.
-
-**[Play it in your browser](https://play.unity.com/en/games/e2cd4937-3be9-4cda-90f3-91a958a63660/web)**
-
-![Video demo](public/demo-video.gif)
+The lab work for the Intelligent Games course, one Unity project that grows with each lab.
+The newest is a skeleton driven by a finite state machine: it patrols, hunts you by sight,
+fights, runs for safety when it is hurt, and dies.
 
 ![Unity](https://img.shields.io/badge/Unity-6.3%20LTS-000000?logo=unity)
 ![URP](https://img.shields.io/badge/Render-URP-2196F3)
 ![C#](https://img.shields.io/badge/C%23-239120?logo=csharp&logoColor=white)
 ![Input System](https://img.shields.io/badge/Input%20System-New-orange)
 ![AI Navigation](https://img.shields.io/badge/AI%20Navigation-2.0-4CAF50)
-![Steering](https://img.shields.io/badge/Steering-Reynolds-9C27B0)
+![FSM](https://img.shields.io/badge/AI-Finite%20State%20Machine-E91E63)
 
 </div>
 
 ---
 
-## Controls
+## Labs in this repo
+
+| Lab | Scene | Topic |
+|---|---|---|
+| 1 to 3 | `Assets/Scenes/NPCDetector.unity` | Perception, a NavMesh guard, and a steering farmhand |
+| 4 | `Assets/Scenes/Praktikum4/P4A_AStarGrid.unity` | A* written by hand on a grid, with the open and closed sets drawn on the floor |
+| 4 | `Assets/Scenes/Praktikum4/P4B_NavMeshChase.unity` | NavMesh chasing, repathing, and `NavMeshObstacle` carving |
+| 5 | `Assets/Scenes/Praktikum5/Praktikum05_FSM.unity` | Enemy AI as a finite state machine |
+
+## Running it from source
+
+Clone the repo and open the folder with Unity 6.3 LTS. Unity rebuilds the `Library` folder on first launch, which takes a few minutes. Open any scene from the table above and press Play.
+
+The scenes for labs 4 and 5 are generated. The **Praktikum 4** and **Praktikum 5** menus in the editor rebuild them from scratch and bake their NavMesh, so a scene broken by an experiment is one click from new. Rebuilding overwrites the scene file, including anything you changed in it by hand.
+
+---
+
+## Lab 5: Enemy FSM
+
+A skeleton guards a walled field with four waypoints and two safe points. It runs on a finite state machine with five states.
+
+### Controls
+
+| Input | Action |
+|---|---|
+| WASD | Walk |
+| Mouse | Orbit the camera |
+| Left click | Strike whatever stands just in front of you, 20 damage, twice a second at most |
+| L | Kill the enemy outright |
+| H | Restore your health |
+| R | Restart the scene |
+
+Click the Game view once first, so the camera takes the cursor. Turn on the **Gizmos** button in the Game view too, otherwise the view cone and ranges stay hidden.
+
+### States and transitions
+
+| From | Condition | To |
+|---|---|---|
+| Patrol | You are seen | Chase |
+| Chase | You come within `attackRange` (2 m) | Attack |
+| Chase | It has not seen you for `loseSightTime` (3 s) | Patrol |
+| Attack | You move beyond `attackExitRange` (3 m) | Chase |
+| Patrol, Chase, Attack | Its health falls to `fleeThreshold` (30%) | Flee |
+| Flee | It reaches a safe point | Patrol |
+| Any state | Its health reaches 0 | Dead |
+
+The order of the checks matters as much as the table. Every frame [`EnemyFSM.cs`](Assets/Scripts/Praktikum5/EnemyFSM.cs) asks about death first, then about fleeing, and only then hands control to the active state. Dead therefore wins on the very frame health hits zero, and an enemy that just took a fatal blow cannot land one last strike.
+
+| State | What the skeleton does |
+|---|---|
+| Patrol | Walks the waypoint loop at speed 2, pausing a second at each point |
+| Chase | Runs at you at speed 4.5. Once it loses sight of you it heads for the last place it saw you |
+| Attack | Stops, turns to face you, and hits for 10 every 1.5 seconds |
+| Flee | Sprints at speed 6 to a safe point, then heals to 70% there |
+| Dead | Disables its agent and its senses, and falls over |
+
+Attack is left at `attackExitRange`, not at `attackRange`. With a single threshold, a player standing right on the 2 metre line would flip the enemy between Chase and Attack every frame. The extra metre gives it room to settle.
+
+Flee picks between the two safe points by how far each one takes it from you, less how far it has to run. That keeps it from choosing a refuge whose path goes straight through you. The heal on arrival lifts it clear of the flee threshold, otherwise it would reach safety, start patrolling, and flee again on the next frame.
+
+### How it sees you
+
+[`EnemyPerception.cs`](Assets/Scripts/Praktikum5/EnemyPerception.cs) uses the same three tests as the guard from lab 2, cheapest first.
+
+1. **Vision range.** Are you within 12 metres?
+2. **Field of view.** Are you inside the 110 degree cone ahead of it?
+3. **Line of sight.** Does a ray from its eyes, 1.6 metres up, reach you, a metre off the ground, without hitting anything on the `Obstacle` layer?
+
+The stone walls are three metres tall so you can hide behind them. The perception script only reports what it sees; every decision lives in the FSM.
+
+### Reading it while it runs
+
+| Where | What you see |
+|---|---|
+| Console | One colour-coded line per transition, with the reason, plus a line for every hit |
+| Inspector, on `Enemy_Skeleton (FSM)` | `Current State`, `Previous State` and `Last Transition` |
+| Top-left panel | Current state, both health bars, the attack cooldown, and the flee destination |
+| Over each head | A health bar, with the enemy's state written above its own |
+| Ball over the skeleton | Green for Patrol, yellow Chase, red Attack, blue Flee, grey Dead. It flashes white when the skeleton is hit |
+
+| Gizmo | Meaning |
+|---|---|
+| Large circle and shaded cone | Vision range and field of view. Yellow while it cannot see you, red once it can |
+| Line to you | Green when line of sight is clear, red when an obstacle blocks it |
+| Solid red ring | Attack range |
+| Thin orange ring | Attack exit range |
+| Cyan loop | The patrol route |
+| Green rings | Safe points |
+
+### About the skeleton
+
+The Synty skeleton ships without animations. Its rig is Humanoid, so it borrows the Supersoldier's Idle and Running clips by retargeting, blended by the agent's speed in a controller the scene builder generates. There is no attack or death clip, so those are done in code. The model lunges forward on each hit and topples backwards when it dies.
+
+### Scripts
+
+| File | Job |
+|---|---|
+| `EnemyFSM.cs` | The state machine, its transitions, the console log and the range gizmos |
+| `EnemyPerception.cs` | Vision range, field of view, line of sight |
+| `Health.cs` | Health for both sides, with damaged, healed and died events |
+| `SafePoint.cs` | A flee destination that heals on arrival |
+| `EnemyVisualFeedback.cs` | Animator speed, the state ball, the lunge and the fall |
+| `PlayerMeleeAttack.cs` | The player's left-click strike |
+| `FSMDebugHUD.cs` | The on-screen panel, the overhead bars and the test keys |
+| `Editor/Praktikum5SceneBuilder.cs` | Builds the scene, the enemy animator and the NavMesh |
+
+---
+
+## Labs 1 to 3: Autonomous steering agent
+
+A farmhand that finds its way around the island with no map at all,
+sharing it with a guard who hunts you by sight and loses you when you break cover.
+
+**[Play it in your browser](https://play.unity.com/en/games/e2cd4937-3be9-4cda-90f3-91a958a63660/web)**
+
+![Video demo](public/demo-video.gif)
+
+### Controls
 
 Click the game window once before you start. Browsers hand over the mouse cursor after a click, so the camera will not respond until you give it one.
 
@@ -37,7 +150,7 @@ A flight runs for 10 seconds. Touching the ground ends it early, and the next on
 
 Tapping Space twice to climb faster will cancel the flight instead, since that gesture is also the cancel command. Leave a gap between taps.
 
-## How the farmhand steers
+### How the farmhand steers
 
 [`SteeringAgent.cs`](Assets/Scripts/SteeringAgent.cs) is this lab, carried in the scene by `Pengelola Sawit`. It walks the same island as the guard from the previous lab and shares none of its code. It never touches the NavMesh. The guard asks Unity for a path and follows it; the farmhand knows only what its sensors report this frame.
 
@@ -53,7 +166,7 @@ Wander stays smooth because that point moves a little each frame instead of jump
 
 Give it an `NPCSensor` and it finds its own target: it chases whatever the sensor sees and drops back to wander `loseTargetDelay` seconds after losing sight of it. Leave that slot empty and the target is whatever you drag into the Inspector.
 
-## How the farmhand avoids things
+### How the farmhand avoids things
 
 [`SteeringSensor.cs`](Assets/Scripts/SteeringSensor.cs) fires three rays along the direction of travel rather than the direction the body faces. The body turns with a slerp and lags behind during a turn, so facing is the wrong thing to ask.
 
@@ -74,7 +187,7 @@ Adding the two was the obvious approach and it failed. A Seek force aimed straig
 
 None of that is a guarantee. Steering is advice, and advice can arrive too late. Before each step lands, a spherecast as wide as its body checks the path; if something blocks it, the step is cut short and the remainder slides along the surface. It runs twice, because sliding off one wall can bury it in the next. This is what stops it walking through the house. The steering is what makes going around the house look deliberate.
 
-## Tuning the farmhand
+### Tuning the farmhand
 
 Every number below is on the agent or its sensor, and changing one alone is the quickest way to see what it owns.
 
@@ -92,7 +205,7 @@ Every number below is on the agent or its sensor, and changing one alone is the 
 
 Two of them are linked. The distance needed to stop is roughly `maxSpeed² ÷ (2 × maxForce)`, so raising `maxSpeed` without raising `maxForce` eventually pushes that distance past `slowRadius`, and the farmhand starts sailing through targets again.
 
-## How the guard sees you
+### How the guard sees you
 
 The second lab is still here, and the third is best read against it.
 
@@ -108,7 +221,7 @@ That third test is what lets you hide. Crates, trees and hills sit on a layer th
 
 The farmhand borrows this same script to find you. Its own sensor only reads walls and ledges.
 
-## How the guard decides
+### How the guard decides
 
 [`NPCBrain.cs`](Assets/Scripts/NPCBrain.cs) drives a `NavMeshAgent` through three states.
 
@@ -120,7 +233,7 @@ The farmhand borrows this same script to find you. Its own sensor only reads wal
 
 Search carries the memory. The guard records your position on every frame it can see you, so breaking line of sight never erases what it already knows. It walks to that spot first, then returns to patrol after finding nothing.
 
-## How you move
+### How you move
 
 [`PlayerController.cs`](Assets/Scripts/PlayerController.cs) moves a `CharacterController`, so walls and crates stop you. It integrates vertical motion by hand rather than leaving it to gravity, because flight needs control that gravity alone will not give.
 
@@ -128,7 +241,7 @@ W sends you wherever the camera faces, and the character turns to meet the direc
 
 [`PlayerAnimatorDriver.cs`](Assets/Scripts/PlayerAnimatorDriver.cs) writes one integer into the Animator, and three Any State transitions read it to pick the clip. A jump keeps the ground pose, since the character ships without a jump animation.
 
-## Scripts
+### Scripts
 
 | File | Job |
 |---|---|
@@ -143,11 +256,7 @@ W sends you wherever the camera faces, and the character turns to meet the direc
 | `CameraFollow.cs` | Orbit camera that dodges scenery |
 | `PlayerAnimatorDriver.cs` | Turns the locomotion state into Animator parameters |
 
-## Running it from source
-
-Clone the repo and open the folder with Unity 6.3 LTS. Unity rebuilds the `Library` folder on first launch, which takes a few minutes.
-
-Open `Assets/Scenes/NPCDetector.unity` and press Play.
+### Gizmos
 
 Keep the Scene view in sight while you play. Reading the farmhand's gizmos is the fastest way to tell a tuning problem from a reference you forgot to fill in, and [`SteeringDebug.cs`](Assets/Scripts/SteeringDebug.cs) draws all of them.
 
@@ -165,7 +274,7 @@ Keep the Scene view in sight while you play. Reading the farmhand's gizmos is th
 
 The guard has its own set. `NPCSensor` draws the detection sphere, the edges of the view cone, and a line to you that turns red the moment the guard has you and grey when it does not. Select the guard and the `Has Line Of Sight` box in the Inspector tells you the same thing at a glance.
 
-## Notes
+### Notes
 
 Anything works as cover if it carries a collider, sits on the `Obstacle` layer, and stands taller than a metre. The single crates land right on that limit, so reach for the stacked pair or the trees.
 
